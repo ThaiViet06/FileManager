@@ -21,6 +21,8 @@ typedef struct {
 
 /*
  * Liệt kê trực tiếp, bỏ qua '.' và '..', giữ thứ tự của hệ thống tệp.
+ * Dùng lstat(): info mô tả chính mục đó, gồm cả liên kết hỏng.
+ * Bộ lọc tệp/thư mục chỉ nhận đúng loại, không đi theo liên kết tượng trưng.
  * Ghi tối đa capacity mục, đặt count và truncated khi còn mục phù hợp.
  * entries có thể là NULL nếu capacity bằng 0. Không in hoặc đọc bàn phím.
  * Trả 0 khi thành công, -1 khi lỗi và giữ thông tin lỗi trong errno.

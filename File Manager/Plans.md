@@ -1,255 +1,190 @@
-# Kế hoạch hoàn thiện chương trình xem thuộc tính tệp và thư mục
+# Tổng quan chức năng và hướng mở rộng File Manager
 
-## 1. Mục tiêu và hiện trạng
+## 1. Dự án có bao nhiêu tùy chọn?
 
-Trong [src/main.c](src/main.c), chức năng xem thông tin hiện mới hiển thị đường dẫn, kích thước và thời gian sửa đổi. Chương trình đã có các tiện ích quản lý tệp nhưng phần thuộc tính thư mục còn thiếu.
+Menu hiện có **8 tùy chọn**, gồm **7 chức năng từ 1 đến 7** và **tùy chọn 0 để thoát**. Chương trình chạy trên terminal Linux.
 
-Mục tiêu tiếp theo là hoàn thiện chức năng chính theo đề tài trên **Linux/WSL**, đồng thời giữ các tiện ích hiện có làm phần mở rộng.
+Các mục trong menu và bảng chọn đã hỗ trợ **↑/↓ rồi Enter**, có tô sáng mục đang chọn. Esc hủy bảng chọn hoặc thoát ở menu chính. Đường dẫn, tên tệp và từ khóa vẫn nhập bằng văn bản. Khi chuyển hướng đầu vào/đầu ra hoặc dùng `TERM=dumb`, chương trình dùng menu nhập số.
 
-## 2. Các bước hoàn thiện chức năng
+Với menu có số tùy chọn từ 0 đến 9, mỗi lần nhấn số sẽ chuyển sang mục tương ứng: nhấn `2` rồi `5` sẽ chọn mục `5`, Enter xác nhận mục cuối. Bảng chọn có số từ 10 trở lên vẫn nhận nhiều chữ số để chọn các mục như `12` hoặc `100`.
 
-Thực hiện việc chia module theo mục 5 trước, sau đó hoàn thiện các chức năng bên dưới trên cấu trúc mã nguồn mới.
+| Tùy chọn | Chức năng | File xử lý chính | Hiện trạng |
+|---|---|---|---|
+| 1 | Chọn / đổi / hủy đường dẫn mặc định | [ui.c](src/ui.c), [directory.c](src/directory.c), [app.c](src/app.c) | Đã chọn được tệp, thư mục và liên kết; chưa có trình duyệt đi vào thư mục con |
+| 2 | Xem thuộc tính và nội dung | [attributes.c](src/attributes.c), [preview.c](src/preview.c), [app.c](src/app.c) | Thuộc tính chuẩn đã hoàn thiện; PDF/DOCX cần kiểm thử với tài liệu và công cụ thật |
+| 3 | Hiển thị cây thư mục | [directory.c](src/directory.c), [app.c](src/app.c) | Đã in cây có giới hạn độ sâu; chưa xử lý việc đi theo liên kết |
+| 4 | Di chuyển / đổi tên tệp | [file_ops.c](src/file_ops.c), [app.c](src/app.c) | Đã có luồng thao tác trên tệp thường trong cùng hệ thống tệp |
+| 5 | Sao chép tệp | [file_ops.c](src/file_ops.c), [app.c](src/app.c) | Đã sao chép tệp thường, xác nhận ghi đè và kiểm tra lỗi I/O |
+| 6 | Xóa tệp | [file_ops.c](src/file_ops.c), [app.c](src/app.c) | Đã hoàn thiện phạm vi xóa tệp thường có xác nhận; chưa có khôi phục |
+| 7 | Tìm kiếm theo tên / phần mở rộng | [directory.c](src/directory.c), [app.c](src/app.c) | Đã tìm đệ quy và đếm kết quả; chưa xử lý việc đi theo liên kết |
+| 0 | Thoát | [app.c](src/app.c), [ui.c](src/ui.c), [terminal.c](src/terminal.c) | Đã thoát và khôi phục terminal; chưa lưu phiên làm việc |
 
-### Bước 1 — Ổn định việc biên dịch
+Phần **đã làm / còn thiếu** bên dưới mô tả mã hiện tại. Phần **có thể mở rộng** là hướng phát triển chưa triển khai. Menu số 8 chưa tồn tại; tách xem nội dung thành mục 8 là một hướng mở rộng của tùy chọn 2.
 
-- Giữ tên chương trình `file_manager`; cập nhật Makefile để dùng C11, bật cảnh báo và khai báo các API POSIX cần thiết.
-- Thay `strcasestr` bằng hàm tìm chuỗi không phân biệt hoa/thường tự viết, tránh phụ thuộc GNU. GCC hiện có trên Windows đang báo lỗi tại lời gọi này.
-- Kiểm tra biên dịch bằng GCC/MSYS2 trên Windows sau mỗi bước; người dùng sẽ xác nhận bản dựng Linux sau.
+## 2. Các file dùng chung giữa các tùy chọn
 
-### Bước 2 — Cho phép chọn cả tệp và thư mục
+Một tùy chọn thường đi qua nhiều file: `app` điều phối, `ui` nhận thao tác, `terminal` điều khiển bàn phím và module nghiệp vụ thực hiện công việc.
 
-- Đổi trạng thái “tệp đang chọn” thành “đường dẫn đang chọn”.
-- Menu số 1 liệt kê tệp, thư mục và liên kết tượng trưng, kèm nhãn phân loại; vẫn cho nhập đường dẫn tuyệt đối hoặc tương đối.
-- Dùng thư mục hiện tại làm điểm bắt đầu, tránh phụ thuộc vào `test_files`.
-- Kiểm tra EOF, lựa chọn sai, đầu vào quá dài và lỗi ghép đường dẫn; báo lỗi thay vì âm thầm cắt ngắn.
-
-### Bước 3 — Hoàn thiện thuộc tính chuẩn
-
-Tách việc lấy dữ liệu khỏi việc trình bày, sử dụng `struct stat` và `lstat()`. Với liên kết tượng trưng, hiển thị thuộc tính của chính liên kết và đường dẫn đích. [Tài liệu Linux về `lstat`](https://man7.org/linux/man-pages/man2/stat.2.html).
-
-| Nhóm | Thông tin hiển thị |
+| File | Vai trò |
 |---|---|
-| Nhận diện | Đường dẫn, loại tệp/thư mục/liên kết |
-| Kích thước | Số byte và giá trị quy đổi KiB |
-| Quyền | Dạng `rwxr-xr-x` và dạng bát phân |
-| Sở hữu | UID, GID, tên người dùng và nhóm; dùng ID khi không tra được tên |
-| Hệ thống tệp | Inode và số liên kết cứng |
-| Thời gian | Truy cập, sửa nội dung, thay đổi trạng thái |
+| [src/main.c](src/main.c) | Khởi tạo `AppContext` và gọi ứng dụng |
+| [src/app.c](src/app.c), [include/app.h](include/app.h) | Vòng lặp menu, điều phối các tùy chọn và quản lý `selected_path` |
+| [src/ui.c](src/ui.c), [include/ui.h](include/ui.h) | Menu, bảng chọn, nhập văn bản, xác nhận và chờ xem kết quả |
+| [src/terminal.c](src/terminal.c), [include/terminal.h](include/terminal.h) | Phím mũi tên/Enter, tô sáng, phân trang, đổi kích thước cửa sổ và khôi phục terminal |
+| [src/path_utils.c](src/path_utils.c), [include/path_utils.h](include/path_utils.h) | Ghép đường dẫn có kiểm tra độ dài và lấy phần tên cuối đường dẫn |
+| [include/config.h](include/config.h) | Giới hạn đường dẫn, số mục trong bảng chọn, số dòng xem trước và độ sâu cây |
 
-Ghi rõ `ctime` là thời gian thay đổi trạng thái; không hiển thị thành ngày tạo. Kích thước thư mục là giá trị hệ thống trả về, không cộng dung lượng bên trong. [Tài liệu Linux về thuộc tính inode](https://man7.org/linux/man-pages/man7/inode.7.html).
+## 3. Tùy chọn 1: Chọn / đổi / hủy đường dẫn mặc định
 
-### Bước 4 — Tích hợp với menu và tiện ích
+**File phụ trách:** [app.c](src/app.c) với `select_or_change_path()`; [ui.c](src/ui.c) với `ui_pick_path()` và `ui_selected_path_action()`; [directory.c](src/directory.c) với `directory_list()`; [app.h](include/app.h) lưu trạng thái. API liệt kê nằm trong [directory.h](include/directory.h).
 
-- Menu số 2 chỉ hiển thị thuộc tính; chuyển phần xem nội dung TXT/PDF/DOCX sang mục số 8.
-- Giữ cây thư mục, tìm kiếm, sao chép, di chuyển và xóa; các thao tác quản lý tệp chỉ chấp nhận tệp thường.
-- Cây thư mục và tìm kiếm không duyệt theo liên kết tượng trưng, tránh vòng lặp.
-- Kiểm tra lỗi đọc/ghi khi sao chép, chặn nguồn và đích cùng tệp, yêu cầu xác nhận trước khi ghi đè.
-- Phần xem tài liệu truyền đối số trực tiếp qua tiến trình con, báo rõ khi thiếu công cụ hoặc xử lý thất bại.
+**Chức năng chính đã làm:**
 
-## 3. Kiểm thử và tiêu chí hoàn thành
+- Liệt kê các mục trong thư mục hiện tại, có nhãn tệp, thư mục, liên kết và loại khác.
+- Dùng `lstat()` để chọn được cả liên kết hợp lệ, hỏng hoặc tự trỏ.
+- Chọn bằng mũi tên/Enter hoặc nhập đường dẫn tương đối/tuyệt đối.
+- Đổi hoặc hủy lựa chọn; giữ lựa chọn trước đó khi hủy, EOF hoặc chọn lỗi.
+- Kiểm tra đường dẫn không tồn tại và đầu vào quá dài.
 
-- `make clean` và `make` chạy thành công trên Linux, không có cảnh báo.
-- Đối chiếu kết quả với `stat` và `ls -ld`: loại, kích thước, quyền, UID/GID, inode, số liên kết và thời gian.
-- Thử tệp rỗng, tệp lớn, thư mục rỗng, tên tiếng Việt, tên chứa khoảng trắng, đường dẫn tương đối và tuyệt đối.
-- Thử liên kết hợp lệ, liên kết hỏng và liên kết tạo vòng lặp.
-- Thử đường dẫn không tồn tại, thư mục cha thiếu quyền truy cập, nhập sai và EOF; chương trình báo lỗi rồi tiếp tục hoạt động.
-- Kiểm thử thao tác sao chép/di chuyển/xóa trong thư mục tạm; xác nhận thiếu công cụ PDF/DOCX vẫn xem được thuộc tính.
+**Làm đến đâu / còn thiếu:** Đã đáp ứng việc chọn một đường dẫn. Bảng chọn hiển thị tối đa 100 mục, có phân trang và nhập tay để chọn ngoài danh sách. Chọn một thư mục hiện chỉ đặt thư mục đó làm đường dẫn mặc định; chưa mở thư mục đó để duyệt các mục con. Đường dẫn đang chọn được lưu trong bộ đệm 1024 byte, gồm ký tự kết thúc chuỗi.
 
-## 4. Giả định và bàn giao
+**Có thể mở rộng:**
 
-- Tiếp tục dùng menu terminal tiếng Việt; chia mã nguồn theo chức năng trong `src/` và `include/` như mục 5 để dễ phát triển, kiểm thử và giải thích khi bảo vệ.
-- Chỉ thực hiện thuộc tính chuẩn theo lựa chọn đã chốt; không bổ sung thống kê dung lượng đệ quy.
-- Môi trường phát triển hiện tại là Windows; trợ lý thực hiện các kiểm tra phù hợp bằng GCC/MinGW và MSYS2, đồng thời viết mã theo yêu cầu Linux/POSIX.
-- Người dùng phụ trách chạy và kiểm thử trên Linux sau. Việc kiểm thử Linux được thực hiện sau và không chặn các bước phát triển tiếp theo trên Windows.
-- Tạo bộ dữ liệu demo mới và README hướng dẫn biên dịch, sử dụng, ý nghĩa thuộc tính và các tình huống trình diễn.
+- Bổ sung duyệt vào thư mục con, quay về thư mục cha và hiển thị vị trí hiện tại.
+- Sắp xếp theo tên/loại/kích thước, lọc nhanh khi gõ và hiển thị tệp ẩn theo lựa chọn.
+- Thay giới hạn 100 mục bằng danh sách động; hỗ trợ chọn nhiều mục, đường dẫn yêu thích và lịch sử gần đây.
 
-## 5. Kế hoạch chia module và tổ chức thư mục dự án C
+## 4. Tùy chọn 2: Xem thuộc tính và nội dung
 
-### 5.1. Hướng tổ chức
+**File phụ trách:** [app.c](src/app.c) với `show_path_info()`; [attributes.c](src/attributes.c) và [attributes.h](include/attributes.h) đọc/in thuộc tính; [preview.c](src/preview.c) và [preview.h](include/preview.h) xem nội dung.
 
-Chia mã nguồn **theo chức năng**, dùng hai thư mục `src/` và `include/` phẳng để dễ tìm kiếm và trình bày khi bảo vệ.
+**Chức năng chính đã làm:**
 
-`main.c` chỉ khởi tạo trạng thái và gọi ứng dụng. Thực hiện việc chia module trước, sau đó hoàn thiện các chức năng đã thống nhất ở mục 2.
+- Hiển thị loại đường dẫn, kích thước byte/KiB, quyền dạng ký tự và bát phân, gồm các bit quyền đặc biệt.
+- Hiển thị UID/GID kèm tên nếu tra được, inode và số liên kết cứng.
+- Hiển thị atime, mtime, ctime kèm độ lệch múi giờ; ghi rõ ctime không phải ngày tạo.
+- Đọc thuộc tính của chính liên kết và chuỗi đích bằng `lstat()`/`readlink()`, kể cả liên kết hỏng; không cắt ngắn đích liên kết dài.
+- Hiển thị kích thước thư mục do hệ thống trả về, không cộng dung lượng bên trong.
+- Với tệp thường, xem trước tối đa 15 dòng. PDF dùng `pdfinfo`/`pdftotext`; DOCX dùng `exiftool`/`docx2txt`. Có thông báo khi công cụ thiếu hoặc trả lỗi.
 
-### 5.2. Cây thư mục đề xuất
+**Làm đến đâu / còn thiếu:** Phần thuộc tính chuẩn đã hoàn thiện và được đối chiếu với dữ liệu hệ thống. Thuộc tính và nội dung vẫn chung menu số 2. Việc trích PDF/DOCX thật chưa được xác nhận bằng bộ tài liệu và công cụ thật. Tệp ngoài PDF/DOCX đang được đọc như văn bản, chưa có bước nhận diện tệp nhị phân.
 
-Thư mục gốc là `File Manager/` đang chứa `main.c`, `Makefile` và `Plans.md`.
+**Có thể mở rộng:**
 
-```text
-File Manager/
-├── Makefile
-├── README.md
-├── Plans.md
-├── .gitignore
-│
-├── include/                # Khai báo dùng giữa các module
-│   ├── config.h
-│   ├── app.h
-│   ├── ui.h
-│   ├── attributes.h
-│   ├── directory.h
-│   ├── file_ops.h
-│   ├── preview.h
-│   └── path_utils.h
-│
-├── src/                    # Phần cài đặt
-│   ├── main.c
-│   ├── app.c
-│   ├── ui.c
-│   ├── attributes.c
-│   ├── directory.c
-│   ├── file_ops.c
-│   ├── preview.c
-│   └── path_utils.c
-│
-├── tests/
-│   └── test_cli.sh         # Kiểm thử chương trình qua terminal
-│
-├── test_files/             # Dữ liệu mẫu để trình diễn
-│   ├── sample.txt
-│   ├── demo_text.txt
-│   └── demo_folder/
-│       └── nested.txt
-│
-├── build/                  # File .o và .d được sinh khi biên dịch
-└── file_manager            # Chương trình thực thi được sinh
-```
+- Tách xem nội dung sang tùy chọn 8, để tùy chọn 2 tập trung vào thuộc tính.
+- Thêm nhận diện định dạng, thông báo tệp nhị phân và kiểm thử PDF/DOCX thật.
+- Cho xem nội dung theo trang, tìm trong nội dung; xuất bảng thuộc tính ra TXT/CSV/JSON.
 
-Các tài liệu PDF/DOCX hợp lệ có thể bổ sung vào dữ liệu demo. Kiểm thử tự động tạo tệp, liên kết và thư mục tạm riêng.
+## 5. Tùy chọn 3: Hiển thị cây thư mục
 
-### 5.3. Trách nhiệm của từng module
+**File phụ trách:** [app.c](src/app.c) với `show_directory_tree()`; [directory.c](src/directory.c) và [directory.h](include/directory.h) với `directory_print_tree()`; [path_utils.c](src/path_utils.c) ghép đường dẫn; [config.h](include/config.h) đặt giới hạn độ sâu.
 
-| Module | Trách nhiệm |
-|---|---|
-| `main.c` | Tạo `AppContext`, gọi `app_run()` và trả mã thoát. |
-| `app` | Chạy vòng lặp menu, điều phối chức năng, quản lý đường dẫn đang chọn và cập nhật trạng thái sau di chuyển/xóa. |
-| `ui` | Hiển thị menu, nhập liệu, xác nhận thao tác và bảng chọn đường dẫn. |
-| `attributes` | Đọc thuộc tính bằng `lstat()`, định dạng quyền/thời gian/chủ sở hữu và xuất bảng thuộc tính bằng các hàm riêng. |
-| `directory` | Liệt kê mục trong thư mục, in cây và tìm kiếm đệ quy; không duyệt theo liên kết tượng trưng. |
-| `file_ops` | Sao chép, di chuyển/đổi tên và xóa tệp; kiểm tra điều kiện và lỗi đọc/ghi. |
-| `preview` | Xem trước TXT/PDF/DOCX, chạy công cụ ngoài bằng tiến trình con và giới hạn nội dung hiển thị. |
-| `path_utils` | Ghép đường dẫn có kiểm tra độ dài, lấy tên cuối đường dẫn và các thao tác đường dẫn dùng chung. |
-| `config.h` | Chứa các giới hạn dùng chung, đặt tên có tiền tố `FM_`, như độ dài đường dẫn và số dòng xem trước. |
+**Chức năng chính đã làm:**
 
-Các quy tắc giao tiếp giữa module:
+- Nhận thư mục gốc; để trống để dùng thư mục hiện tại.
+- Duyệt đệ quy và in cây có thụt lề, bỏ qua `.` và `..`.
+- Giới hạn độ sâu bằng `FM_TREE_MAX_DEPTH`, hiện đặt là 4.
+- Báo lỗi khi mở/đọc thư mục, lấy thông tin hoặc xuất kết quả thất bại.
 
-- Thay `g_selected_file` bằng `AppContext` trong `app.h`, chứa `selected_path`; chuỗi rỗng biểu thị chưa chọn. Chỉ tầng điều phối quản lý trạng thái này.
-- `ui` lấy danh sách qua API của `directory`; không tự viết thêm một vòng duyệt thư mục.
-- `attributes` dùng `struct stat`, với hàm đọc dữ liệu và hàm xuất kết quả tách biệt.
-- `file_ops` nhận đường dẫn và lựa chọn cho phép ghi đè qua tham số; không đọc bàn phím. `app` kết hợp xác nhận từ `ui` với thao tác tương ứng.
-- Các hàm xử lý hệ thống trả trạng thái thành công/thất bại và giữ thông tin lỗi để bên gọi báo lỗi.
-- Hàm chỉ dùng trong một file phải khai báo `static`. Mỗi header có include guard; không `#include` file `.c` và không tạo phụ thuộc vòng.
+**Làm đến đâu / còn thiếu:** Đã in được cây thông thường. Phần duyệt vẫn dùng `stat()`, nên còn đi theo liên kết tới thư mục; liên kết hỏng hoặc lỗi truy cập có thể làm dừng việc in cây. Đây là phần cần hoàn thiện tiếp.
 
-Các hàm nhỏ như xóa ký tự xuống dòng, kiểm tra đuôi tệp và tìm chuỗi không phân biệt hoa/thường nằm riêng trong module sử dụng chúng, tránh tạo một `utils.c` chứa mọi thứ.
+**Có thể mở rộng:**
 
-### 5.4. Trình tự chuyển đổi và hệ thống build
+- Dùng `lstat()` để hiển thị liên kết nhưng không đi theo liên kết; tiếp tục với các nhánh khác khi một nhánh lỗi.
+- Cho chọn thư mục gốc bằng bảng chọn, chọn độ sâu và lọc các loại mục cần hiển thị.
+- Bổ sung sắp xếp, phân trang kết quả và mở/thu gọn nhánh bằng bàn phím.
 
-1. Thống nhất cấu trúc thư mục và trách nhiệm các module theo kế hoạch trong mục 5 này.
-2. Tạo `src/`, `include/` và các header; cập nhật Makefile để hỗ trợ nhiều file nguồn.
-3. Tách lần lượt phần đường dẫn, thuộc tính, duyệt thư mục, thao tác tệp và xem nội dung; biên dịch sau mỗi nhóm.
-4. Tách nhập liệu sang `ui`, điều phối sang `app`, rồi chuyển điểm khởi chạy vào `src/main.c`.
-5. Hoàn thiện thuộc tính chuẩn, menu số 8 và các xử lý lỗi theo kế hoạch chức năng ở mục 2.
-6. Bổ sung kiểm thử, dữ liệu demo và README mô tả kiến trúc cùng cách chạy.
+## 6. Tùy chọn 4: Di chuyển / đổi tên tệp
 
-Makefile sẽ:
+**File phụ trách:** [app.c](src/app.c) với `move_file()`; [file_ops.c](src/file_ops.c) và [file_ops.h](include/file_ops.h) với `file_ops_move()`; [ui.c](src/ui.c) chọn đích/xác nhận; [path_utils.c](src/path_utils.c) lấy tên và ghép đường dẫn đích.
 
-- Biên dịch `src/*.c` thành các file đối tượng trong `build/`, dùng `-Iinclude`.
-- Dùng C11, các khai báo POSIX cần thiết và cảnh báo `-Wall -Wextra -Wpedantic`.
-- Sinh phụ thuộc header bằng `-MMD -MP`.
-- Giữ các lệnh `make`, `make clean`, bổ sung `make test`; giữ tên chương trình `file_manager`.
+**Chức năng chính đã làm:**
 
-`.gitignore` loại trừ `build/` và chương trình thực thi. `make clean` chỉ xóa sản phẩm biên dịch.
+- Dùng tệp đang chọn hoặc chọn tệp nguồn khác khi chưa có lựa chọn.
+- Chọn thư mục đích và nhập tên mới; để trống tên để giữ tên nguồn.
+- Chỉ nhận tệp thường; chặn nguồn/đích cùng tệp, kể cả hard link.
+- Hỏi trước khi ghi đè; giao diện mũi tên mặc định Hủy.
+- Chỉ cập nhật đường dẫn đang chọn sau khi di chuyển thành công; giữ nguyên trạng thái khi hủy hoặc lỗi.
 
-### 5.5. Kiểm thử và tiêu chí hoàn thành sau khi chia module
+**Làm đến đâu / còn thiếu:** Đã hoàn thành luồng di chuyển/đổi tên tệp thường trong cùng hệ thống tệp bằng `rename()` trên Linux. Khi khác hệ thống tệp, thao tác trả lỗi `EXDEV`; chưa có bước sao chép rồi xóa nguồn. Chưa hỗ trợ di chuyển thư mục, liên kết hoặc nhiều tệp cùng lúc.
 
-- Chương trình liên kết thành công từ nhiều file nguồn, không có cảnh báo khi kiểm tra bằng GCC/MSYS2; người dùng xác nhận thêm trên Linux/WSL sau.
-- Sửa một header sẽ biên dịch lại các module phụ thuộc.
-- `main.c` chỉ còn phần khởi chạy; không chứa menu, nhập liệu, duyệt thư mục hoặc thao tác tệp.
-- Kiểm thử qua terminal xác nhận việc chọn đường dẫn và cập nhật trạng thái sau di chuyển/xóa.
-- Đối chiếu thuộc tính với `stat`; kiểm tra thư mục, liên kết hỏng và vòng liên kết.
-- Kiểm tra sao chép cùng tệp, xác nhận ghi đè, EOF và thiếu công cụ xem tài liệu trong thư mục tạm.
-- Giữ Linux/WSL, menu tiếng Việt và phạm vi thuộc tính chuẩn đã thống nhất.
+**Có thể mở rộng:**
 
-## 6. Tiến độ triển khai
+- Hỗ trợ khác hệ thống tệp bằng sao chép, xác nhận sao chép thành công rồi mới xóa nguồn.
+- Thêm đổi tên hàng loạt và chọn nhiều tệp, hiển thị kết quả từng mục.
+- Mở rộng xử lý thư mục/liên kết với quy tắc riêng; thêm theo dõi tiến độ và hủy tác vụ khi thao tác lớn.
 
-### Bước đầu — Tạo khung thư mục và cập nhật Makefile
+## 7. Tùy chọn 5: Sao chép tệp
 
-- [x] Tạo `src/` và `include/`; ban đầu dùng `.gitkeep`, sau đó thay bằng header thật khi tách module.
-- [x] Chuyển mã hiện tại từ `main.c` sang `src/main.c`.
-- [x] Cập nhật Makefile để biên dịch `src/*.c`, lưu file `.o` và `.d` trong `build/`, dùng C11 và các khai báo POSIX.
-- [x] Thêm `.gitignore` cho sản phẩm biên dịch.
-- [x] Thay lời gọi `strcasestr` bằng hàm `contains_case_insensitive` dùng `strncasecmp` để khắc phục lỗi biên dịch hiện có.
-- [x] Biên dịch sạch cảnh báo bằng GCC/MinGW và Make của MSYS2 với `make TARGET=file_manager.exe clean` rồi `make TARGET=file_manager.exe`; xác nhận lần gọi `make` tiếp theo không biên dịch lại.
-- [x] Kiểm tra menu, tìm kiếm `.C` khớp `src/main.c`, thoát bằng lựa chọn `0` và xử lý EOF.
-- [ ] Người dùng xác nhận `make clean` và `make` trên Linux/WSL sau; trợ lý tiếp tục các bước phát triển và kiểm tra trên Windows theo thỏa thuận ở mục 4.
+**File phụ trách:** [app.c](src/app.c) với `copy_file()`; [file_ops.c](src/file_ops.c) và [file_ops.h](include/file_ops.h) với `file_ops_copy()`; [ui.c](src/ui.c) chọn đích/xác nhận; [path_utils.c](src/path_utils.c) tạo đường dẫn đích.
 
-### Bước 2 — Tách module xử lý đường dẫn
+**Chức năng chính đã làm:**
 
-- [x] Tạo `include/path_utils.h` có include guard và `src/path_utils.c`.
-- [x] Bổ sung `path_join()` trả trạng thái và `errno`, không để bên gọi dùng kết quả bị cắt ngắn; `path_basename()` lấy tên cuối theo dấu `/` của POSIX.
-- [x] Dùng module mới trong bảng chọn file/thư mục, cây thư mục, tìm kiếm, sao chép và di chuyển; báo lỗi khi ghép đường dẫn thất bại.
-- [x] Giới hạn đường dẫn đích của sao chép/di chuyển theo bộ đệm đường dẫn đang chọn, tránh cắt ngắn trạng thái sau di chuyển.
-- [x] Biên dịch và liên kết hai file nguồn bằng GCC/MinGW và Make của MSYS2, không có cảnh báo.
-- [x] Kiểm tra kết quả vừa khít bộ đệm, thiếu chỗ chứa kết quả, đầu vào không hợp lệ, chuỗi rỗng và dấu `/` cuối.
-- [x] Kiểm tra qua menu: chọn file, sao chép với tên mặc định, di chuyển/đổi tên, cập nhật file đang chọn, cây thư mục và tìm kiếm không phân biệt hoa/thường; dữ liệu kiểm tra dùng tên chứa khoảng trắng và thư mục có dấu `/` cuối.
-- [x] Xác nhận file sao chép và di chuyển giữ nguyên nội dung; Makefile theo dõi `path_utils.h` cho cả hai file nguồn.
+- Sao chép tệp thường theo từng khối byte, dùng được cho nội dung văn bản và nhị phân.
+- Chọn thư mục đích, nhập tên mới; để trống tên để thêm tiền tố `copy_`.
+- Chặn nguồn/đích cùng tệp hoặc hard link; hỏi trước khi ghi đè và mặc định Hủy.
+- Mở nguồn trước khi mở đích, tạo đích mới độc quyền, kiểm tra lỗi đọc/ghi/đóng tệp.
+- Dọn tệp đích vừa tạo nếu sao chép thất bại; giữ nguyên lựa chọn nguồn.
 
-### Bước 3 — Tách module thuộc tính
+**Làm đến đâu / còn thiếu:** Đã hoàn thành luồng sao chép nội dung tệp thường. Khi đã cho phép ghi đè đích có sẵn, lỗi I/O có thể để lại đích chưa đầy đủ. Chưa có ghi qua tệp tạm để thay thế đích sau cùng, chưa sao chép quyền/thời gian của nguồn và chưa có tiến độ/hủy tác vụ.
 
-- [x] Tạo `include/attributes.h` có include guard và `src/attributes.c`.
-- [x] Tách `attributes_read()` để đọc vào `struct stat`, trả trạng thái và giữ thông tin lỗi qua `errno` cho bên gọi.
-- [x] Tách `attributes_print()` để xuất đường dẫn, kích thước và thời gian sửa đổi ra `FILE *`; định dạng kích thước bằng `intmax_t` và kiểm tra lỗi thời gian/ghi dữ liệu.
-- [x] Cập nhật `show_file_info()` trong `main.c` để gọi module mới; phần chọn đường dẫn và xem nội dung sẽ được tách ở các bước tương ứng.
-- [x] Giữ `stat()` và ba thuộc tính hiện có ở bước tách module này. Việc chuyển sang `lstat()` và bổ sung quyền, chủ sở hữu, inode, các mốc thời gian thuộc giai đoạn hoàn thiện chức năng sau khi chia module.
-- [x] Biên dịch sạch cảnh báo bằng GCC/MinGW và Make của MSYS2, liên kết đủ ba file nguồn hiện có.
-- [x] Đối chiếu đầu ra file văn bản trước/sau khi tách module: khớp hoàn toàn; kiểm tra file đang chọn, file rỗng, thư mục và đường dẫn không tồn tại đều đạt.
-- [x] Xác nhận Makefile theo dõi `attributes.h` cho `main.c` và `attributes.c`, không yêu cầu biên dịch lại `path_utils.c` khi header này thay đổi.
+**Có thể mở rộng:**
 
-### Bước 4 — Tách module thư mục
+- Sao chép qua tệp tạm rồi thay thế đích sau khi hoàn tất để cải thiện xử lý ghi đè.
+- Cho chọn giữ quyền/thời gian, kiểm tra nội dung sau sao chép và hiển thị tiến độ.
+- Sao chép nhiều tệp hoặc cả thư mục; thêm tạm dừng/hủy và báo cáo kết quả từng mục.
 
-- [x] Tạo `include/directory.h` có include guard và `src/directory.c`.
-- [x] Tạo `include/config.h`, chuyển các giới hạn đường dẫn, số mục chọn, số dòng xem trước và độ sâu cây sang các hằng có tiền tố `FM_` dùng chung.
-- [x] Bổ sung `DirectoryEntry`, `DirectoryFilter` và `directory_list()` để cung cấp danh sách có lọc, số mục đã đọc và trạng thái còn mục ngoài giới hạn; phần giao diện vẫn phụ trách hiển thị và nhập lựa chọn.
-- [x] Tách `directory_print_tree()` và `directory_search()` để xuất kết quả ra `FILE *`, trả trạng thái và bảo toàn `errno` khi đóng thư mục sau lỗi.
-- [x] Chuyển các thao tác `opendir`/`readdir`/`closedir` và hàm tìm tên không phân biệt hoa/thường khỏi `main.c`; bảng chọn dùng API của module mới.
-- [x] Giữ giới hạn độ sâu cây hiện có; tìm kiếm duyệt toàn bộ cây và không bị giới hạn bởi sức chứa bảng chọn. Bảng chọn báo khi vượt 100 mục, vẫn cho nhập đường dẫn bằng tay.
-- [x] Báo lỗi khi mở/đọc thư mục, lấy thuộc tính hoặc xuất kết quả thất bại; xử lý EOF ở các câu hỏi về cây thư mục và tìm kiếm.
-- [x] Bước tách module này giữ cách dùng `stat()` hiện tại. Chuyển sang đọc thuộc tính liên kết và tránh duyệt theo liên kết tượng trưng thuộc giai đoạn hoàn thiện chức năng sau khi chia module.
-- [x] Biên dịch sạch cảnh báo bằng GCC/MinGW và Make của MSYS2, liên kết đủ bốn file nguồn hiện có; xác nhận phụ thuộc `directory.h` và `config.h`.
-- [x] Đối chiếu đầu ra cây thư mục, tìm kiếm và chọn file theo số trước/sau khi tách: khớp hoàn toàn.
-- [x] Kiểm tra thư mục rỗng, đường dẫn không tồn tại, EOF, chọn thư mục theo số, sao chép/di chuyển giữ nguyên nội dung và cập nhật trạng thái file đang chọn.
-- [x] Kiểm tra danh sách hơn 100 file/thư mục, nhập tay ngoài danh sách, tìm đủ 106 file và tìm ở độ sâu lớn hơn giới hạn hiển thị cây.
+## 8. Tùy chọn 6: Xóa tệp
 
-### Bước 5 — Tách module thao tác tệp
+**File phụ trách:** [app.c](src/app.c) với `delete_file()`; [file_ops.c](src/file_ops.c) và [file_ops.h](include/file_ops.h) với `file_ops_delete()`; [ui.c](src/ui.c) với `ui_confirm_delete()`.
 
-- [x] Tạo `include/file_ops.h` có include guard và `src/file_ops.c`, cung cấp `file_ops_copy()`, `file_ops_move()` và `file_ops_delete()`; các hàm trả trạng thái/`errno` và không đọc bàn phím hoặc in giao diện.
-- [x] Kiểm tra nguồn và đích là tệp thường; từ chối thư mục và liên kết tượng trưng/reparse point. Nhánh Linux dùng `lstat()`, nhánh Windows kiểm tra thuộc tính reparse point để phục vụ môi trường phát triển hiện tại.
-- [x] Chặn nguồn và đích cùng tệp, kể cả đường dẫn khác nhau hoặc hard link; dùng device/inode trên POSIX và [định danh qua handle trên Windows](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle).
-- [x] Đích tồn tại mặc định trả `EEXIST`; giao diện hỏi xác nhận và chỉ gọi lại với quyền ghi đè khi nhận đúng `y` hoặc `Y`.
-- [x] Mở được nguồn trước khi mở đích sao chép; tạo đích mới bằng chế độ độc quyền, kiểm tra lỗi đọc/ghi/đóng tệp, đóng đủ tài nguyên và dọn đích vừa tạo khi lỗi.
-- [x] Ghi rõ giới hạn sao chép: nếu cho phép ghi đè tệp có sẵn rồi xảy ra lỗi I/O, đích có thể chứa dữ liệu chưa đầy đủ; thao tác vẫn trả lỗi. Di chuyển không sao chép dự phòng khi khác hệ thống tệp (`EXDEV`).
-- [x] Giữ nhập liệu, xác nhận và thông báo trong `main.c`; chỉ cập nhật đường dẫn đang chọn khi di chuyển thành công, chỉ hủy chọn khi xóa thành công.
-- [x] Xử lý EOF ở tên đích và câu hỏi xác nhận; câu trả lời quá dài bị từ chối và phần còn lại của dòng được bỏ qua.
-- [x] Biên dịch sạch cảnh báo bằng GCC/MinGW và Make của MSYS2, liên kết đủ năm file nguồn hiện có; xác nhận phụ thuộc `file_ops.h` chỉ tác động tới các module liên quan.
-- [x] Kiểm tra sao chép nhị phân nhiều khối, cùng tệp/cùng hard link, ghi đè được phép/bị từ chối, di chuyển, xóa, nguồn thiếu, thư mục và reparse point.
-- [x] Kiểm tra lỗi mở nguồn/đích: đích giữ nguyên khi nguồn không mở được và nguồn không bị giữ mở sau khi thao tác thất bại.
-- [x] Giả lập lỗi đọc, ghi và đóng tệp trên bản kiểm tra riêng: nhận đúng lỗi, đóng đủ hai stream, dọn đích mới và giữ nguyên nguồn; với đích có sẵn, không báo thành công khi xảy ra lỗi.
-- [x] Kiểm tra qua menu việc xác nhận/hủy ghi đè, EOF, xác nhận quá dài và trạng thái file đang chọn sau khi hủy hoặc hoàn thành di chuyển/xóa.
+**Chức năng chính đã làm:**
 
-### Bước 6 — Tách module xem trước nội dung
+- Dùng tệp đang chọn hoặc chọn tệp cần xóa khi chưa có lựa chọn.
+- Từ chối thư mục, liên kết và các loại không phải tệp thường.
+- Yêu cầu xác nhận; giao diện mũi tên mặc định Hủy. Chế độ nhập dòng chỉ đồng ý khi nhận đúng `y` hoặc `Y`.
+- Xử lý hủy/EOF/lỗi, báo kết quả và chỉ hủy lựa chọn sau khi xóa thành công.
 
-- [x] Tạo `include/preview.h` có include guard và `src/preview.c`, cung cấp `preview_show(FILE *, const char *)`, trả trạng thái/`errno` và không đọc bàn phím.
-- [x] Chuyển phần kiểm tra đuôi tệp, đọc văn bản, metadata và trích xuất PDF/DOCX khỏi `main.c`; phần điều phối gọi `preview_show()` sau khi in thuộc tính.
-- [x] Loại bỏ `popen()` và chuỗi lệnh shell. Linux dùng `posix_spawnp()` với mảng đối số và pipe; Windows dùng `CreateProcessA()` cùng [quy tắc quote đối số của Windows CRT](https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments?view=msvc-170).
-- [x] Truyền đường dẫn tuyệt đối cho công cụ để tên tệp bắt đầu bằng dấu `-` không bị hiểu thành tùy chọn. Công cụ metadata/PDF nhận stdin rỗng; `docx2txt - -` nhận dữ liệu tệp qua stdin và xuất stdout theo [giao diện docx2txt của Debian](https://manpages.debian.org/trixie/docx2txt/docx2txt.1.en.html).
-- [x] Giới hạn nội dung theo số dòng thực, giữ nguyên dòng dài; chỉ báo thu gọn khi có dữ liệu vượt giới hạn. Đọc hết đầu ra công cụ trước khi lấy mã thoát, đồng thời giới hạn phần hiển thị để tránh kẹt pipe.
-- [x] Thu stderr của công cụ cùng đầu ra, báo rõ công cụ thiếu hoặc mã thoát lỗi, đóng pipe/handle và chờ tiến trình hoàn tất. Vẫn thử trích nội dung nếu công cụ metadata thất bại.
-- [x] Biên dịch sạch cảnh báo bằng GCC/MinGW và Make của MSYS2, liên kết đủ sáu file nguồn; xác nhận `preview.h` chỉ tác động tới các file phụ thuộc.
-- [x] Đối chiếu văn bản ngắn, tệp rỗng và đúng 15 dòng với bản trước khi tách: khớp hoàn toàn. Kiểm tra dòng dài 1500 ký tự vẫn được tính là một dòng; thư mục và đường dẫn thiếu trả lỗi.
-- [x] Dùng công cụ giả lập trên Windows để kiểm tra argv với tên chứa khoảng trắng, `&`, `%`, `$`, dấu nháy đơn và đuôi viết hoa; stdin DOCX giữ nguyên 1024 byte nhị phân.
-- [x] Kiểm tra 40000 dòng đầu ra từ tiến trình: chỉ hiển thị phần giới hạn, không kẹt pipe; vẫn nhận đúng mã thoát lỗi nằm sau phần đã thu gọn. Kiểm tra giới hạn riêng cho metadata và nội dung DOCX.
-- [x] Kiểm tra thiếu công cụ, công cụ trả lỗi và chỉ có công cụ trích nội dung: phần thuộc tính và vòng lặp menu vẫn hoạt động.
+**Làm đến đâu / còn thiếu:** Đã hoàn thiện phạm vi xóa một tệp thường có xác nhận. Hiện xóa trực tiếp bằng `unlink()`, chưa có thùng rác, hoàn tác hoặc xóa nhiều mục.
 
-Ở bước này menu số 2 vẫn hiển thị cả thuộc tính và nội dung như trước. Việc tách nội dung sang menu số 8 thuộc giai đoạn hoàn thiện chức năng sau khi chia module. Máy chưa có các công cụ PDF/DOCX thật; các kiểm tra tiến trình ở trên dùng chương trình giả lập, còn việc chuyển đổi tài liệu thật trên Linux do người dùng thực hiện sau.
+**Có thể mở rộng:**
 
-Bước tiếp theo là tách phần menu, nhập liệu, xác nhận và bảng chọn đường dẫn sang `ui.c` và `ui.h`. Sau đó tách điều phối/trạng thái sang `app`, để `main.c` chỉ còn khởi chạy.
+- Chuyển tệp vào thùng rác và hỗ trợ khôi phục.
+- Chọn nhiều tệp, xem danh sách trước khi thực hiện và báo kết quả từng tệp.
+- Thêm lịch sử thao tác; hỗ trợ xóa thư mục rỗng như một chức năng riêng.
+
+## 9. Tùy chọn 7: Tìm kiếm theo tên / phần mở rộng
+
+**File phụ trách:** [app.c](src/app.c) với `search_file()`; [directory.c](src/directory.c) và [directory.h](include/directory.h) với `directory_search()`; [path_utils.c](src/path_utils.c) ghép đường dẫn khi duyệt.
+
+**Chức năng chính đã làm:**
+
+- Nhận từ khóa như `demo`, `.txt`, `.PDF`; từ chối từ khóa rỗng.
+- Nhận thư mục bắt đầu, để trống để tìm từ thư mục hiện tại.
+- Tìm tên chứa từ khóa, không phân biệt hoa/thường thông qua `strncasecmp()`.
+- Duyệt đệ quy, hiển thị đường dẫn và đếm kết quả; không bị giới hạn bởi 100 mục của bảng chọn.
+
+**Làm đến đâu / còn thiếu:** Đã tìm được trong cây thư mục thông thường. Phần duyệt còn dùng `stat()`, nên đi theo liên kết tới thư mục, có thể gặp vòng liên kết và dừng khi gặp liên kết hỏng/lỗi truy cập. Chưa có lọc theo thuộc tính, hủy tìm kiếm hoặc chọn trực tiếp một kết quả. Việc không phân biệt hoa/thường chưa xử lý đầy đủ tên Unicode.
+
+**Có thể mở rộng:**
+
+- Dùng `lstat()` để tránh đi theo liên kết, tiếp tục các nhánh khác khi một nhánh lỗi.
+- Lọc theo loại, kích thước, thời gian, độ sâu; bổ sung xử lý hoa/thường Unicode.
+- Cho duyệt kết quả bằng mũi tên rồi chuyển sang xem thuộc tính/sao chép/di chuyển/xóa; hỗ trợ tìm trên cây lớn với tiến độ và hủy tác vụ.
+
+## 10. Tùy chọn 0: Thoát
+
+**File phụ trách:** [app.c](src/app.c) trong `app_run()`; [ui.c](src/ui.c) nhận lựa chọn; [terminal.c](src/terminal.c) khôi phục terminal; [main.c](src/main.c) trả mã thoát.
+
+**Chức năng chính đã làm:**
+
+- Thoát bằng mục 0 hoặc Esc/Ctrl+D ở menu chính; kết thúc khi đầu vào chuyển hướng hết dữ liệu.
+- Khôi phục chế độ nhập, con trỏ và màn hình khi kết thúc bảng chọn.
+- Xử lý Ctrl+C và các tín hiệu kết thúc được hỗ trợ để khôi phục terminal trước khi chuyển lại cho cơ chế xử lý tín hiệu.
+
+**Làm đến đâu / còn thiếu:** Đã hoàn thành việc thoát trong phạm vi ứng dụng hiện tại. Đường dẫn đang chọn chỉ tồn tại trong phiên chạy; chưa lưu cấu hình hoặc phiên làm việc.
+
+**Có thể mở rộng:**
+
+- Lưu và khôi phục thư mục, đường dẫn gần đây và lựa chọn giao diện giữa các phiên.
+- Chuẩn hóa mã thoát để phân biệt người dùng thoát, EOF và lỗi vận hành khi tích hợp vào script.

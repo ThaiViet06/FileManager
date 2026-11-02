@@ -67,7 +67,7 @@ int directory_list(const char *base_dir, DirectoryFilter filter,
             return finish_directory(dir, errno);
         }
         struct stat info;
-        if (stat(path, &info) != 0) return finish_directory(dir, errno);
+        if (lstat(path, &info) != 0) return finish_directory(dir, errno);
         if (!matches_filter(&info, filter)) continue;
 
         if (*count == capacity) {
